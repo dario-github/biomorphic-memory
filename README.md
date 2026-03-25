@@ -94,3 +94,15 @@ for node, score in activated[:10]:
 ## License
 
 Apache License 2.0 — See [LICENSE](LICENSE).
+
+## Companion Projects
+
+- [**Nous Safety**](https://github.com/dario-github/nous) — Ontology-driven runtime safety engine with Datalog reasoning
+- [**Agent Self-Evolution**](https://github.com/dario-github/agent-self-evolution) — Automated evaluation, ablation testing, and improvement loops
+
+## Install via ClawdHub
+
+```bash
+openclaw skills install biomorphic-memory
+```
+
