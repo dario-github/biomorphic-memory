@@ -2,7 +2,7 @@
 
 **Brain-inspired memory architecture for AI agents — spreading activation, Q-value decay, and semantic graph retrieval.**
 
-> 🏆 LongMemEval benchmark: **89.8% accuracy** (SOTA #1, surpassing EmergenceMem 86%)
+> LongMemEval (V1), self-run: **87.1%** with the full pipeline, **89.8%** after switching the base LLM to doubao-pro. The evaluation harness is not in this repo, so these numbers are not reproducible from here and are not a ranking against other systems. See [Benchmarks](#benchmarks).
 
 ---
 
@@ -81,11 +81,20 @@ for node, score in activated[:10]:
 
 ## Benchmarks
 
-**LongMemEval** (standardized long-term memory evaluation):
-- Baseline (flat vector): 78.6%
-- + Spreading Activation: 84.2%
-- + PPR + Q-value: 87.1%
-- + Model swap (doubao-pro): **89.8%** ← SOTA #1
+**LongMemEval (V1)**, self-run, March 2026:
+
+| Setup | Accuracy |
+|---|---|
+| Baseline (flat vector) | 78.6% |
+| + Spreading Activation | 84.2% |
+| + PPR + Q-value (full pipeline) | 87.1% |
+| Same pipeline, base LLM switched to doubao-pro | 89.8% |
+
+The last step comes from the model swap, not from the memory architecture.
+
+Caveats:
+- The evaluation scripts, judge settings and run logs are not included in this repo, so the numbers above cannot be reproduced from it.
+- Published LongMemEval results use different model stacks, judges and retrieval settings. These numbers are not comparable to them and are not a leaderboard claim.
 
 **Distractor Robustness Evaluation**:
 - D1-D2 (mild distractors): 95%+ accuracy

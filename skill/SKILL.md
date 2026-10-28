@@ -50,7 +50,7 @@ relevant = spreading_activation(graph, query="preparing to deploy v2.1")
 
 ## Key results
 
-- **LongMemEval**: 89.8% accuracy (SOTA #1, beating EmergenceMem's 86%)
+- **LongMemEval (V1), self-run**: 87.1% with the full pipeline, 89.8% with doubao-pro as the base LLM. Not reproducible from this repo; see the README for caveats.
 - Pure semantic pipeline: embedding → cosine → spreading activation + PPR
 - No keyword hacks, no BM25 — just graph structure and embeddings
 
