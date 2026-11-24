@@ -161,10 +161,24 @@ def cmd_decay():
             continue
             
         if days > 0:
-            decay_factor = pow(2.718281828, -EDGE_DECAY_RHO * days)
             old_w = edge["weight"]
-            edge["weight"] = round(old_w * decay_factor, 4)
-            if edge["weight"] != old_w:
+            # Apply total elapsed time to a fixed weight for this activation.
+            origin = edge.get("decay_origin")
+            origin_weight = None
+            if isinstance(origin, dict) and origin.get("last_activation") == last_act:
+                origin_weight = origin.get("weight")
+            if (
+                type(origin_weight) not in (int, float)
+                or not (-sys.float_info.max <= origin_weight <= sys.float_info.max)
+                or (old_w != 0 and (origin_weight < 0) != (old_w < 0))
+            ):
+                origin_weight = old_w
+                edge["decay_origin"] = {"last_activation": last_act, "weight": origin_weight}
+            decay_factor = pow(2.718281828, -EDGE_DECAY_RHO * days)
+            new_weight = round(origin_weight * decay_factor, 4)
+            # Earlier clocks and lower rates must not restore decayed weight.
+            if abs(new_weight) < abs(old_w):
+                edge["weight"] = new_weight
                 decayed += 1
                 
     GRAPH_FILE.write_text(json.dumps(graph, indent=2, ensure_ascii=False))
