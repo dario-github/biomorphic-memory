@@ -1,4 +1,4 @@
-"""Compare three decay switch days on the unchanged ranker-cadence fixture."""
+"""Compare decay switch days on the unchanged ranker-cadence fixture."""
 
 import io
 import json
@@ -15,9 +15,12 @@ from test_decay_migration import snapshot
 from test_ranker_cadence import (BASELINE, DAY_ZERO, END_DAY, RATE, ROOT, TOP_K,
                                  fixture, load_baseline)
 
-SWITCH_DAYS = (8, 16, 23)
+REFERENCE_SWITCH_DAYS = (16, 8, 23)
+FOLLOWUP_SWITCH_DAYS = (17, 18, 19, 20, 21, 22)
+SWITCH_DAYS = (*REFERENCE_SWITCH_DAYS, *FOLLOWUP_SWITCH_DAYS)
 PRE_SWITCH_DAYS = tuple(day - 1 for day in SWITCH_DAYS)
 R3_ARMS = ("baseline_once", "corrected_daily_clean", "baseline_daily_full", "migrate_at_16")
+R4_ARMS = (*R3_ARMS, "migrate_at_8", "migrate_at_23")
 
 
 def run_arm(schedule, switch_day, operators, ranker, graph, q_values, queries):
@@ -58,7 +61,7 @@ def run_experiment(prior=None):
         "baseline_commit": BASELINE,
         "day_zero": DAY_ZERO.isoformat(),
         "endpoint": (DAY_ZERO + timedelta(days=END_DAY)).isoformat(),
-        "switch_days": SWITCH_DAYS,
+        "switch_days": sorted(SWITCH_DAYS),
         "decay_rate": RATE,
         "k": TOP_K,
         "confidence_gate": ranker.TAU_GATE,
@@ -68,16 +71,20 @@ def run_experiment(prior=None):
         "python_version": sys.version,
         "numpy_version": ranker.np.__version__,
     }
+    reference_arms = ()
     if prior is not None:
+        reference_round, reference_arms = (
+            ("r4", R4_ARMS) if "switch_days" in prior else ("r3", R3_ARMS)
+        )
         for key in ("baseline_commit", "day_zero", "endpoint", "decay_rate", "k",
                     "confidence_gate", "graph", "q_values", "queries"):
             if measured[key] != prior[key]:
-                raise ValueError(f"Round 3 input mismatch: {key}")
+                raise ValueError(f"{reference_round} input mismatch: {key}")
         for case, query in queries.items():
             if list(query["anchors"]) != list(prior["queries"][case]["anchors"]):
-                raise ValueError(f"Round 3 anchor order mismatch: {case}")
+                raise ValueError(f"{reference_round} anchor order mismatch: {case}")
         if list(queries) != list(prior["queries"]):
-            raise ValueError("Round 3 query order mismatch")
+            raise ValueError(f"{reference_round} query order mismatch")
 
     daily = range(1, END_DAY + 1)
     schedules = {
@@ -86,7 +93,7 @@ def run_experiment(prior=None):
         "baseline_daily_full": (None, dict.fromkeys(daily, "legacy")),
         **{f"migrate_at_{switch}": (
             switch, {day: "legacy" if day < switch else "corrected" for day in daily},
-        ) for switch in (16, 8, 23)},
+        ) for switch in SWITCH_DAYS},
     }
     arms = {}
     shared_history = {}
@@ -100,17 +107,19 @@ def run_experiment(prior=None):
                 raise ValueError(f"{name} has different pre-switch bytes from full legacy")
         if name == "baseline_daily_full":
             legacy_pre_graphs = pre_graphs
-        if prior is not None and name in R3_ARMS:
+        if name in reference_arms:
             endpoint = arm["snapshots"][END_DAY]
             expected = prior["arms"][name]["snapshots"][str(END_DAY)]
             for key in endpoint:
                 if endpoint[key] != expected[key]:
-                    raise ValueError(f"Round 3 endpoint mismatch: {name}, {key}")
+                    raise ValueError(f"{reference_round} endpoint mismatch: {name}, {key}")
             matched.append(name)
         arms[name] = arm
 
     return {**measured, "shared_legacy_graph_bytes_equal": shared_history,
-            "r3_matched_arms": matched, "arms": arms}
+            "r3_matched_arms": matched if reference_arms == R3_ARMS else [],
+            "r4_matched_arms": matched if reference_arms == R4_ARMS else [],
+            "arms": arms}
 
 
 class DecaySwitchHorizonTest(unittest.TestCase):
@@ -123,33 +132,36 @@ class DecaySwitchHorizonTest(unittest.TestCase):
         long_aged = {"kiln/registry", "beacon/field-slip"}
         lift = {"lift/order-17", "lift/order-18"}
         previous = clean
-        for switch in SWITCH_DAYS:
+        for switch in sorted(SWITCH_DAYS):
             with self.subTest(switch=switch):
                 states = arms[f"migrate_at_{switch}"]["snapshots"]
                 before, first, final = (states[day] for day in (switch - 1, switch, END_DAY))
                 inherited = long_aged | lift if switch == 23 else long_aged
+                eligible = long_aged | lift if switch >= 22 else long_aged
                 for old, corrected, edge, earlier, clean_edge, legacy_edge in zip(
                     before["edges"], first["edges"], final["edges"], previous["edges"],
                     clean["edges"], full["edges"],
                 ):
                     with self.subTest(edge=edge["from"]):
-                        if edge["from"] in inherited:
+                        if edge["from"] in eligible:
                             self.assertNotIn("decay_origin", old)
                             self.assertEqual(corrected["decay_origin"], {
                                 "weight": old["weight"], "last_activation": old["last_activation"],
                             })
                             self.assertLess(corrected["weight"], old["weight"])
                             self.assertEqual(edge["decay_origin"], corrected["decay_origin"])
+                        else:
+                            self.assertEqual(corrected, old)
+                        if edge["from"] in inherited:
                             self.assertLess(legacy_edge["weight"], edge["weight"])
                             self.assertLess(edge["weight"], earlier["weight"])
                         else:
-                            self.assertEqual(corrected, old)
                             self.assertEqual(edge, clean_edge)
                 for row, reference, legacy in zip(final["cases"], clean["cases"], full["cases"]):
                     with self.subTest(case=row["case"]):
                         self.assertGreaterEqual(row["ranked"][0]["score"], data["confidence_gate"])
                         self.assertEqual(set(row["top_k"]), set(legacy["top_k"]))
-                        expected_top_1 = legacy["top_1"] if switch == 23 else reference["top_1"]
+                        expected_top_1 = legacy["top_1"] if switch >= 17 else reference["top_1"]
                         self.assertEqual(row["top_1"], expected_top_1)
                         if row["case"] in ("older_authoritative", "newer_authoritative"):
                             self.assertNotEqual(set(row["top_k"]), set(reference["top_k"]))

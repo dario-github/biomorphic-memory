@@ -23,3 +23,9 @@ GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL= python3 -I -B tests/test_decay_switch_ho
 ```
 
 Pass the archived [round-3 study](decay-migration-study.md) measurements JSON path after `--json` to check its four day-30 arms exactly before running the two new arms. The harness loads public-baseline maintenance from local Git, runs each arm in a temporary directory and blocks Python socket events. Output includes the frozen inputs, all day-30 ranks and components, and edge origin snapshots on the three first corrected days. The comparison covers the Python ranker after fixed anchor selection. Rebuilt live graphs, changed anchors, downstream retrieval and answer quality are outside its scope.
+
+### Follow-up on switch days 17–22
+
+On the same fixture, day 17 was the first measured switch to retain full-legacy Top-1 on both conflict queries at day 30. Kiln vendor and beacon registry each led their units node by 0.0001. Day 16 still led with units. Top-2 membership matched full legacy throughout days 16–23. Each long-aged edge fell from 0.0448 on day 16 to 0.0325 on day 17 and 0.0049 on day 22. The lift edges finished at the clean 0.4594 for every switch through day 22 and at 0.4503 for day 23, with identical lift Top-2 order.
+
+Pass the archived round-4 measurements JSON path after `--json` to reproduce the six reference endpoints before running days 17–22. The export adds their pre-switch ranks and edge weights, first corrected edge states, and complete day-30 rows.
