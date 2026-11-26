@@ -29,3 +29,11 @@ Pass the archived [round-3 study](decay-migration-study.md) measurements JSON pa
 On the same fixture, day 17 was the first measured switch to retain full-legacy Top-1 on both conflict queries at day 30. Kiln vendor and beacon registry each led their units node by 0.0001. Day 16 still led with units. Top-2 membership matched full legacy throughout days 16–23. Each long-aged edge fell from 0.0448 on day 16 to 0.0325 on day 17 and 0.0049 on day 22. The lift edges finished at the clean 0.4594 for every switch through day 22 and at 0.4503 for day 23, with identical lift Top-2 order.
 
 Pass the archived round-4 measurements JSON path after `--json` to reproduce the six reference endpoints before running days 17–22. The export adds their pre-switch ranks and edge weights, first corrected edge states, and complete day-30 rows.
+
+### Follow-up on switch days 1–7 and 9–15
+
+Both conflict queries kept units first at day 30 on all 14 new switch days. With days 8 and 16 reproduced from the archive, day 17 remains the first measured switch with full-legacy Top-1 on both queries across days 1–23. The day-1 arm made zero legacy calls and matched the clean corrected endpoint exactly.
+
+Top-2 membership changed earlier, between switch days 4 and 5. Kiln vendor displaced kiln registry, and beacon registry displaced beacon field slip. The incoming source was superseded in the kiln case and authoritative in the beacon case. Their opposing exposure changes left the aggregate superseded-conflict measure at 2/3. Each long-aged edge dropped from 0.4381 to 0.4044 at that boundary. For switches 7, 8, 9, 15 and 16, the corresponding weights were 0.3245, 0.2821, 0.2404, 0.0605 and 0.0448. The lift edges held at 0.4594 throughout days 1–16.
+
+Pass the archived round-5 measurements JSON path after `--json` to check all 12 reference endpoints before scoring the 14 early switches. The export includes full per-case rows and first-corrected edge snapshots. All 22 positive pre-switch graphs matched the uninterrupted legacy graph byte-for-byte at the same day.
