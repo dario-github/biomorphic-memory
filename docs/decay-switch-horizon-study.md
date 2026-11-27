@@ -37,3 +37,9 @@ Both conflict queries kept units first at day 30 on all 14 new switch days. With
 Top-2 membership changed earlier, between switch days 4 and 5. Kiln vendor displaced kiln registry, and beacon registry displaced beacon field slip. The incoming source was superseded in the kiln case and authoritative in the beacon case. Their opposing exposure changes left the aggregate superseded-conflict measure at 2/3. Each long-aged edge dropped from 0.4381 to 0.4044 at that boundary. For switches 7, 8, 9, 15 and 16, the corresponding weights were 0.3245, 0.2821, 0.2404, 0.0605 and 0.0448. The lift edges held at 0.4594 throughout days 1–16.
 
 Pass the archived round-5 measurements JSON path after `--json` to check all 12 reference endpoints before scoring the 14 early switches. The export includes full per-case rows and first-corrected edge snapshots. All 22 positive pre-switch graphs matched the uninterrupted legacy graph byte-for-byte at the same day.
+
+### Follow-up on beacon registry anchor similarity
+
+With only the beacon registry query-anchor similarity lowered from 1.00 to 0.97, a day-5 switch kept beacon units and field slip in the day-30 Top-2. Field slip scored 0.5564 and registry 0.5514. Kiln still switched to units and vendor, with vendor ahead of registry by 0.0083. Clean and day-4 Top-2 membership stayed the same for both queries, and full legacy at 0.97 still ranked beacon registry first and units second. The day-4 and day-5 long-aged weights stayed at 0.4381 and 0.4044 respectively, with lift weights at 0.4594. This measures sensitivity to one fixed anchor on the frozen fixture.
+
+Use `--anchor-json /path/to/round-6/measurements.json` with the reproduction command above. It checks five original-anchor endpoints against the archive and exports all nine endpoints plus the pre-switch and first-corrected graph snapshots for both 0.97 switches.

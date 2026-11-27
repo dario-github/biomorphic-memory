@@ -5,6 +5,7 @@ import json
 import sys
 import unittest
 from contextlib import redirect_stdout
+from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -22,10 +23,11 @@ EARLY_SWITCH_DAYS = (1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15)
 R3_ARMS = ("baseline_once", "corrected_daily_clean", "baseline_daily_full", "migrate_at_16")
 R4_ARMS = (*R3_ARMS, "migrate_at_8", "migrate_at_23")
 R5_ARMS = (*R4_ARMS, *(f"migrate_at_{day}" for day in FOLLOWUP_SWITCH_DAYS))
+ANCHOR_SUFFIX = "_beacon_registry_0_97"
 
 
 def run_arm(schedule, switch_day, pre_switch_days, legacy_pre_graphs,
-            operators, ranker, graph, q_values, queries):
+            operators, ranker, graph, q_values, queries, *, graph_history=None):
     snapshots = {}
     pre_switch_graphs = {}
     with TemporaryDirectory() as directory:
@@ -56,6 +58,8 @@ def run_arm(schedule, switch_day, pre_switch_days, legacy_pre_graphs,
                 snapshots[day] = snapshot(graph_path, q_path, graph, q_payload, ranker, queries)
             if day == switch_day:
                 snapshots[day] = {"edges": json.loads(graph_path.read_bytes())["edges"]}
+            if graph_history is not None and day in snapshots:
+                graph_history[day] = graph_path.read_bytes()
     arm = {"schedule": schedule, "snapshots": snapshots}
     if switch_day == 1:
         arm["pre_switch_day"] = None
@@ -145,7 +149,110 @@ def run_experiment(prior=None):
             "arms": arms}
 
 
+def run_anchor_sensitivity(prior=None):
+    sys.path.insert(0, str(ROOT))
+    from src import q_value, spreading_activation as ranker
+
+    operators = {"legacy": load_baseline(), "corrected": q_value}
+    graph, q_values, queries = fixture()
+    changed_queries = deepcopy(queries)
+    changed_queries["newer_authoritative"]["anchors"]["beacon/registry"] = 0.97
+    measured = {
+        "baseline_commit": BASELINE,
+        "day_zero": DAY_ZERO.isoformat(),
+        "endpoint": (DAY_ZERO + timedelta(days=END_DAY)).isoformat(),
+        "decay_rate": RATE,
+        "k": TOP_K,
+        "confidence_gate": ranker.TAU_GATE,
+        "graph": graph,
+        "q_values": q_values,
+        "queries": queries,
+    }
+    if prior is not None:
+        for key, value in measured.items():
+            if value != prior[key]:
+                raise ValueError(f"r6 input mismatch: {key}")
+        if list(queries) != list(prior["queries"]):
+            raise ValueError("r6 query order mismatch")
+        for case, query in queries.items():
+            if list(query["anchors"]) != list(prior["queries"][case]["anchors"]):
+                raise ValueError(f"r6 anchor order mismatch: {case}")
+
+    daily = range(1, END_DAY + 1)
+    switches = (4, 5)
+    schedules = {
+        "baseline_once": (None, {END_DAY: "legacy"}),
+        "corrected_daily_clean": (None, dict.fromkeys(daily, "corrected")),
+        "baseline_daily_full": (None, dict.fromkeys(daily, "legacy")),
+        **{f"migrate_at_{switch}": (
+            switch, {day: "legacy" if day < switch else "corrected" for day in daily},
+        ) for switch in switches},
+    }
+    arms, original_histories, matched = {}, {}, []
+    pre_switch_checks, cross_map_checks = {}, {}
+    for suffix, query_map in (("", queries), (ANCHOR_SUFFIX, changed_queries)):
+        legacy_pre_graphs = {}
+        for name, (switch, schedule) in schedules.items():
+            if suffix and name == "baseline_once":
+                continue
+            arm_name = name + suffix
+            history = {}
+            arm, pre_graphs = run_arm(
+                schedule, switch, {day - 1 for day in switches}, legacy_pre_graphs,
+                operators, ranker, graph, q_values, query_map, graph_history=history,
+            )
+            if name == "baseline_daily_full":
+                legacy_pre_graphs = pre_graphs
+            if switch is not None:
+                pre_switch_checks[arm_name] = switch - 1
+            endpoint = arm["snapshots"][END_DAY]
+            if prior is not None and not suffix:
+                expected = prior["arms"][name]["snapshots"][str(END_DAY)]
+                if endpoint != expected:
+                    differing = [key for key in endpoint.keys() | expected.keys()
+                                 if endpoint.get(key) != expected.get(key)]
+                    raise ValueError(f"r6 endpoint mismatch: {name}, fields {sorted(differing)}")
+                matched.append(name)
+            if any(row["ranked"][0]["score"] < ranker.TAU_GATE for row in endpoint["cases"]):
+                raise ValueError(f"Day-30 leader below confidence gate: {arm_name}")
+            if suffix:
+                if history != original_histories[name]:
+                    raise ValueError(f"Graph bytes differ across anchor maps: {name}")
+                cross_map_checks[arm_name] = sorted(history)
+                if switch is not None:
+                    for day in (switch - 1, switch):
+                        arm["snapshots"][day]["graph"] = json.loads(history[day])
+            else:
+                original_histories[name] = history
+            arms[arm_name] = arm
+
+    return {**measured, "queries_beacon_registry_0_97": changed_queries,
+            "switch_days": list(switches), "python_version": sys.version,
+            "numpy_version": ranker.np.__version__, "r6_matched_arms": matched,
+            "pre_switch_bytes_equal_to_legacy_at_day": pre_switch_checks,
+            "cross_map_graph_bytes_equal_at_days": cross_map_checks, "arms": arms}
+
+
 class DecaySwitchHorizonTest(unittest.TestCase):
+    def test_anchor_change_leaves_maintenance_and_other_queries_unchanged(self):
+        data = run_anchor_sensitivity()
+        self.assertEqual(len(data["cross_map_graph_bytes_equal_at_days"]), 4)
+        self.assertEqual(len(data["pre_switch_bytes_equal_to_legacy_at_day"]), 4)
+        for name, arm in data["arms"].items():
+            if not name.endswith(ANCHOR_SUFFIX):
+                continue
+            with self.subTest(arm=name):
+                original = data["arms"][name[:-len(ANCHOR_SUFFIX)]]["snapshots"][END_DAY]
+                modified = arm["snapshots"][END_DAY]
+                for before, after in zip(original["cases"], modified["cases"]):
+                    if after["case"] == "newer_authoritative":
+                        self.assertEqual({row["node_id"]: row["semantic"]
+                                          for row in after["ranked"]},
+                                         {"beacon/units": 0.82, "beacon/field-slip": 1.00,
+                                          "beacon/registry": 0.97})
+                    else:
+                        self.assertEqual(after, before)
+
     def test_switch_horizon_changes_inherited_weights_and_mirrored_top_1(self):
         data = run_experiment()
         self.assertEqual(data["shared_legacy_graph_bytes_equal"], dict.fromkeys(range(1, 23), True))
@@ -211,9 +318,12 @@ if __name__ == "__main__":
             raise RuntimeError(f"Unexpected socket audit event: {event}")
 
     sys.addaudithook(block_network)
-    if sys.argv[1:2] == ["--json"]:
+    if sys.argv[1:2] in (["--json"], ["--anchor-json"]):
+        anchor_sensitivity = sys.argv[1] == "--anchor-json"
+        if anchor_sensitivity and len(sys.argv) != 3:
+            sys.exit("Usage: test_decay_switch_horizon.py --anchor-json R6_MEASUREMENTS")
         prior = json.loads(Path(sys.argv[2]).read_bytes()) if len(sys.argv) == 3 else None
-        data = run_experiment(prior)
+        data = run_anchor_sensitivity(prior) if anchor_sensitivity else run_experiment(prior)
         data["python_socket_audit_events"] = network_events
         print(json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False))
         sys.exit(bool(network_events))
